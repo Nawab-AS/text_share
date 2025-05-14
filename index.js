@@ -1,46 +1,71 @@
-let express = require("express");
+const express = require("express");
 var app = express();
-var http = require("http").createServer(app);
-let io = require("socket.io")(http);
-let fs = require("fs");
-const PASSWORD = process.env.PASSWORD;
-let file = "";
+const WebSocket = require("ws");
+const PORT = process.env.PORT || 3000;
+const WS_PORT = process.env.WS_PORT || 3001;
+const dev = process.env.ENVIRONMENT == "DEV";
+// file = "";
 
-if (PASSWORD == undefined) {
-    console.log("ERROR: No password set");
-}
+// debug logs
+function debug(message) {
+  if (dev) {
+    console.log(message);
+  }
+};
+debug("DEVELOPMENT MODE");
 
-app.use(express.static(__dirname + "/public"));
-app.use(function (req, res) {
-    url = new URL("http://localhost:80"+req.url)
-    if (fs.existsSync(__dirname + "/public" + url.pathname)){
-    res.sendFile(__dirname + "/public" + req.url);
-    } else {
-        res.sendFile(__dirname + "/public/404.html");
-    }
+// use routes.js for routes
+app.use("/", require("./routes.js")(WS_PORT, app).router());
+
+// listen fot https requests
+app.listen(PORT, () => {
+    console.log("express listening on *:" + PORT);
 });
 
-io.on("connection", (socket) => {
-    console.log("User connected");
-    let auth = false;
 
-    socket.on("auth", (data) => {
-        if (data.password == PASSWORD){
-            auth = true;
-            io.emit("edit", {text:file, id:"null"});
-        } else {
-            socket.disconnect();
+// socket.io
+// io.on("connection", (socket) => {
+//     debug("User connected");
+//     let auth = false;
+
+//     socket.on("auth", (data) => {
+//         if (data.password == PASSWORD) {
+//             auth = true;
+//             io.emit("edit", { text: file, id: "null" });
+//         } else {
+//             socket.disconnect();
+//         }
+//     });
+
+//     socket.on("sync", (data) => {
+//         if (auth) {
+//             io.emit("edit", { text: data.text, id: data.id });
+//             file = data.text;
+//         }
+//     });
+// });
+
+// Websocket
+const Websocket = new WebSocket.Server({ port: WS_PORT });
+
+Websocket.on("connection", (client) => {
+    console.log("new websocket connection");
+    client.on("message", (data) => {
+        debug(data);
+        try {
+            JSON.parse(data);
+        } catch(e){ // data is a string
+            return;
         }
-    });
-
-    socket.on("sync", (data)=>{
-        if (auth){
-            io.emit("edit", {text:data.text, id:data.id});
-            file = data.text;
+        // data is a json object
+        let packet = JSON.parse(data);
+        debug("json");
+        if (packet.type == "echo") {
+            Websocket.clients.forEach((otherClient) => {
+                otherClient.send(packet.data);
+            });
         }
+        console.log("received: %s", packet);
     });
 });
-
-http.listen(process.env.PORT || 8080, function () {
-    console.log("http listening on *:" + (process.env.PORT || 8080));
-});
+console.log("websocket listening on *:" + WS_PORT);
